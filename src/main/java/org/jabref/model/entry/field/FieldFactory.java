@@ -1,7 +1,7 @@
 package org.jabref.model.entry.field;
 
-import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -42,7 +42,7 @@ public class FieldFactory {
     /**
      * ASCII encoder used to validate the name of a field.
      */
-    private static CharsetEncoder ASCII_ENCODER = Charset.forName("US-ASCII").newEncoder();
+    private static final CharsetEncoder ASCII_ENCODER = StandardCharsets.US_ASCII.newEncoder();
 
     public static String serializeOrFields(Field... fields) {
         return serializeOrFields(new OrFields(fields));
