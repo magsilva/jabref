@@ -21,6 +21,7 @@ class FieldFactoryTest {
         assertTrue(FieldFactory.isValidFieldName("authors"));
         assertTrue(FieldFactory.isValidFieldName("comment-"));
         assertTrue(FieldFactory.isValidFieldName("__internal"));
+        assertTrue(FieldFactory.isValidFieldName("field_name_without_spaces"));
     }
 
     @Test
@@ -28,6 +29,8 @@ class FieldFactoryTest {
         assertFalse(FieldFactory.isValidFieldName("authors{}"));
         assertFalse(FieldFactory.isValidFieldName("comment#"));
         assertFalse(FieldFactory.isValidFieldName("'internal"));
+        assertFalse(FieldFactory.isValidFieldName("field name with spaces"));
+        assertFalse(FieldFactory.isValidFieldName("notASCIIáéíóú"));
     }
 
     @Test
