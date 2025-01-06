@@ -1,5 +1,7 @@
 package org.jabref.model.entry.field;
 
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -28,6 +30,19 @@ public class FieldFactory {
      */
     private static final String FIELD_OR_SEPARATOR = "/";
     private static final String DELIMITER = ";";
+
+    /**
+     * There are some ASCII symbols that, although not invalid from BibTeX
+     * point of view, are troublesome when processing the data using LaTeX.
+     * Thus, considering some references on Stackoverflow (https://tex.stackexchange.com/a/408548),
+     * I created a new list of unwanted symbols.
+     */
+    public static final String UNWANTED_CHARS = " ,{}()\"'%#~\\";
+
+    /**
+     * ASCII encoder used to validate the name of a field.
+     */
+    private static final CharsetEncoder ASCII_ENCODER = StandardCharsets.US_ASCII.newEncoder();
 
     public static String serializeOrFields(Field... fields) {
         return serializeOrFields(new OrFields(fields));
@@ -108,6 +123,29 @@ public class FieldFactory {
                      })
                      .collect(Collectors.joining(DELIMITER));
     }
+
+    /**
+     * Check if the field name is a reasonable value.
+     *
+     * We often consider that the field name should only contain ASCII symbols.
+     * Moreover, there are some symbols that, although not invalid from BibTeX
+     * point of view, are troublesome when processing the data using LaTeX.
+     *
+     * @param fieldName Name of the field to be verified.
+     * @return True if the name is valid, false otherwise.
+     */
+    public static boolean isValidFieldName(String fieldName) {
+        if (! ASCII_ENCODER.canEncode(fieldName)) {
+            return false;
+        }
+        for (int symbol : UNWANTED_CHARS.toCharArray()) {
+            if (fieldName.indexOf(symbol) != -1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 
     /**
      * Type T is an entry type and is used to direct the mapping to the Java field class.
