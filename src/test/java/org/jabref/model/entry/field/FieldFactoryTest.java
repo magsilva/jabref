@@ -10,9 +10,26 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FieldFactoryTest {
+
+    @Test
+    void isValidFieldName() {
+        assertTrue(FieldFactory.isValidFieldName("authors"));
+        assertTrue(FieldFactory.isValidFieldName("comment-"));
+        assertTrue(FieldFactory.isValidFieldName("__internal"));
+    }
+
+    @Test
+    void isInvalidFieldName() {
+        assertFalse(FieldFactory.isValidFieldName("authors{}"));
+        assertFalse(FieldFactory.isValidFieldName("comment#"));
+        assertFalse(FieldFactory.isValidFieldName("'internal"));
+    }
+
     @Test
     void orFieldsTwoTerms() {
         assertEquals("Aaa/Bbb", FieldFactory.serializeOrFields(new UnknownField("aaa"), new UnknownField("bbb")));

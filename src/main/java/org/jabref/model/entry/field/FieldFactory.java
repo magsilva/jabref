@@ -29,6 +29,8 @@ public class FieldFactory {
     private static final String FIELD_OR_SEPARATOR = "/";
     private static final String DELIMITER = ";";
 
+    public static final String UNWANTED_CHARS = "#{}()~,^&\"'`ʹ\\";
+
     public static String serializeOrFields(Field... fields) {
         return serializeOrFields(new OrFields(fields));
     }
@@ -108,6 +110,16 @@ public class FieldFactory {
                      })
                      .collect(Collectors.joining(DELIMITER));
     }
+
+    public static boolean isValidFieldName(String fieldName) {
+        for (int symbol : UNWANTED_CHARS.toCharArray()) {
+            if (fieldName.indexOf(symbol) != -1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 
     /**
      * Type T is an entry type and is used to direct the mapping to the Java field class.
