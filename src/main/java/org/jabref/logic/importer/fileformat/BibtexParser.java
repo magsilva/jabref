@@ -717,7 +717,8 @@ public class BibtexParser implements Parser {
     }
 
     private void parseField(BibEntry entry) throws IOException {
-        Field field = FieldFactory.parseField(parseTextToken().toLowerCase(Locale.ROOT));
+        String fieldName = parseTextToken().toLowerCase(Locale.ROOT);
+        Field field = FieldFactory.parseField(fieldName);
 
         skipWhitespace();
         consume('=');
