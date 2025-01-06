@@ -13,7 +13,6 @@ import org.jabref.gui.DialogService;
 import org.jabref.gui.entryeditor.EntryEditorPreferences;
 import org.jabref.gui.preferences.GuiPreferences;
 import org.jabref.gui.preferences.PreferenceTabViewModel;
-import org.jabref.logic.citationkeypattern.CitationKeyGenerator;
 import org.jabref.logic.importer.fetcher.MrDlibPreferences;
 import org.jabref.logic.l10n.Localization;
 import org.jabref.model.entry.field.Field;
@@ -121,16 +120,11 @@ public class EntryEditorTabViewModel implements PreferenceTabViewModel {
                 return;
             }
 
-            // Use literal string of unwanted characters specified below as opposed to exporting characters
-            // from preferences because the list of allowable characters in this particular differs
-            // i.e. ';' character is allowed in this window, but it's on the list of unwanted chars in preferences
-            String unwantedChars = "#{}()~,^&-\"'`ʹ\\";
-            String testString = CitationKeyGenerator.cleanKey(parts[1], unwantedChars);
-            if (!testString.equals(parts[1])) {
+            if (! FieldFactory.isValidFieldName(parts[1])) {
                 dialogService.showInformationDialogAndWait(
                         Localization.lang("Error"),
                         Localization.lang("Field names are not allowed to contain white spaces or certain characters (%0).",
-                                "# { } ( ) ~ , ^ & - \" ' ` ʹ \\"));
+                                String.join(" ", FieldFactory.UNWANTED_CHARS.split(""))));
                 return;
             }
 
