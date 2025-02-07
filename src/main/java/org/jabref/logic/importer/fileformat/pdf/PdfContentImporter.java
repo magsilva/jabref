@@ -1,6 +1,5 @@
-package org.jabref.logic.importer.fileformat;
+package org.jabref.logic.importer.fileformat.pdf;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -9,21 +8,19 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.jabref.logic.importer.ParserResult;
+import org.jabref.logic.importer.fileformat.BibliographyFromPdfImporter;
+import org.jabref.logic.importer.fileformat.PdfMergeMetadataImporter;
 import org.jabref.logic.l10n.Localization;
 import org.jabref.logic.os.OS;
-import org.jabref.logic.util.StandardFileType;
-import org.jabref.logic.xmp.EncryptedPdfsNotSupportedException;
-import org.jabref.logic.xmp.XmpUtilReader;
+import org.jabref.logic.util.PdfUtils;
 import org.jabref.model.entry.BibEntry;
-import org.jabref.model.entry.LinkedFile;
 import org.jabref.model.entry.field.StandardField;
+import org.jabref.model.entry.identifier.ArXivIdentifier;
 import org.jabref.model.entry.identifier.DOI;
 import org.jabref.model.entry.types.EntryType;
 import org.jabref.model.entry.types.StandardEntryType;
@@ -38,7 +35,7 @@ import org.apache.pdfbox.text.TextPosition;
 import static org.jabref.model.strings.StringUtil.isNullOrEmpty;
 
 /**
- * PdfContentImporter parses data of the first page of the PDF and creates a BibTeX entry.
+ * Parses data of the first page of the PDF and creates a BibTeX entry.
  * <p>
  * Currently, Springer, and IEEE formats are supported.
  * <p>
@@ -50,6 +47,8 @@ import static org.jabref.model.strings.StringUtil.isNullOrEmpty;
 public class PdfContentImporter extends PdfImporter {
 
     private static final Pattern YEAR_EXTRACT_PATTERN = Pattern.compile("\\d{4}");
+
+    private static final int ARXIV_PREFIX_LENGTH = "arxiv:".length();
 
     // input lines into several lines
     private String[] lines;
@@ -186,34 +185,13 @@ public class PdfContentImporter extends PdfImporter {
         return removeNonLettersAtEnd(title);
     }
 
-    @Override
-    public boolean isRecognizedFormat(BufferedReader input) throws IOException {
-        return input.readLine().startsWith("%PDF");
-    }
-
-    @Override
-    public ParserResult importDatabase(BufferedReader reader) throws IOException {
-        Objects.requireNonNull(reader);
-        throw new UnsupportedOperationException("PdfContentImporter does not support importDatabase(BufferedReader reader)."
-                + "Instead use importDatabase(Path filePath, Charset defaultEncoding).");
-    }
-
-    @Override
-    public ParserResult importDatabase(Path filePath) {
+    public List<BibEntry> importDatabase(Path filePath, PDDocument document) throws IOException {
         List<BibEntry> result = new ArrayList<>(1);
-        try (PDDocument document = new XmpUtilReader().loadWithAutomaticDecryption(filePath)) {
-            String firstPageContents = getFirstPageContents(document);
-            Optional<String> titleByFontSize = extractTitleFromDocument(document);
-            Optional<BibEntry> entry = getEntryFromPDFContent(firstPageContents, OS.NEWLINE, titleByFontSize);
-            entry.ifPresent(result::add);
-        } catch (EncryptedPdfsNotSupportedException e) {
-            return ParserResult.fromErrorMessage(Localization.lang("Decryption not supported."));
-        } catch (IOException exception) {
-            return ParserResult.fromError(exception);
-        }
-
-        result.forEach(entry -> entry.addFile(new LinkedFile("", filePath.toAbsolutePath(), "PDF")));
-        return new ParserResult(result);
+        String firstPageContents = PdfUtils.getFirstPageContents(document);
+        Optional<String> titleByFontSize = extractTitleFromDocument(document);
+        Optional<BibEntry> entry = getEntryFromPDFContent(firstPageContents, OS.NEWLINE, titleByFontSize);
+        entry.ifPresent(result::add);
+        return result;
     }
 
     private static Optional<String> extractTitleFromDocument(PDDocument document) throws IOException {
@@ -252,16 +230,24 @@ public class PdfContentImporter extends PdfImporter {
             return Math.abs(Xgap) > XspaceThreshold && Math.abs(Ygap) > YspaceThreshold;
         }
 
-        private boolean isUnwantedText(TextPosition previousTextPosition, TextPosition textPosition) {
+        private boolean isUnwantedText(TextPosition previousTextPosition, TextPosition textPosition,
+                                       Map<Float, TextPosition> lastPositionMap, float fontSize) {
+            // This indicates that the text is at the start of the line, so it is needed.
             if (textPosition == null || previousTextPosition == null) {
                 return false;
             }
+            // We use the font size to identify titles. Blank characters don't have a font size, so we discard them.
+            // The space will be added back in the final result, but not in this method.
             if (StringUtil.isBlank(textPosition.getUnicode())) {
                 return true;
             }
-            // The title usually don't in the bottom 10% of a page.
-            return (textPosition.getPageHeight() - textPosition.getYDirAdj())
-                    < (textPosition.getPageHeight() * 0.1);
+            // Titles are generally not located in the bottom 10% of a page.
+            if ((textPosition.getPageHeight() - textPosition.getYDirAdj()) < (textPosition.getPageHeight() * 0.1)) {
+                return true;
+            }
+            // Characters in a title typically remain close together,
+            // so a distant character is unlikely to be part of the title.
+            return lastPositionMap.containsKey(fontSize) && isFarAway(lastPositionMap.get(fontSize), textPosition);
         }
 
         private Optional<String> findLargestFontText(List<TextPosition> textPositions) {
@@ -271,8 +257,7 @@ public class PdfContentImporter extends PdfImporter {
             for (TextPosition textPosition : textPositions) {
                 float fontSize = textPosition.getFontSizeInPt();
                 // Exclude unwanted text based on heuristics
-                if (isUnwantedText(previousTextPosition, textPosition) ||
-                    (lastPositionMap.containsKey(fontSize) && isFarAway(lastPositionMap.get(fontSize), textPosition))) {
+                if (isUnwantedText(previousTextPosition, textPosition, lastPositionMap, fontSize)) {
                     continue;
                 }
                 fontSizeTextMap.putIfAbsent(fontSize, new StringBuilder());
@@ -365,11 +350,13 @@ public class PdfContentImporter extends PdfImporter {
         String volume = null;
         String number = null;
         String pages = null;
+        String arXivId = null;
         // year is a class variable as the method extractYear() uses it;
         String publisher = null;
 
         EntryType type = StandardEntryType.InProceedings;
         if (curString.length() > 4) {
+            arXivId = getArXivId(null);
             // special case: possibly conference as first line on the page
             extractYear();
             doi = getDoi(null);
@@ -389,6 +376,7 @@ public class PdfContentImporter extends PdfImporter {
             }
         }
 
+        arXivId = getArXivId(arXivId);
         // start: title
         fillCurStringWithNonEmptyLines();
         title = streamlineTitle(curString);
@@ -508,6 +496,7 @@ public class PdfContentImporter extends PdfImporter {
                 }
             } else {
                 doi = getDoi(doi);
+                arXivId = getArXivId(arXivId);
 
                 if ((publisher == null) && curString.contains("IEEE")) {
                     // IEEE has the conference things at the end
@@ -532,8 +521,7 @@ public class PdfContentImporter extends PdfImporter {
             }
         }
 
-        BibEntry entry = new BibEntry();
-        entry.setType(type);
+        BibEntry entry = new BibEntry(type);
 
         // TODO: institution parsing missing
 
@@ -557,6 +545,15 @@ public class PdfContentImporter extends PdfImporter {
         }
         if (doi != null) {
             entry.setField(StandardField.DOI, doi);
+        }
+        if (arXivId != null) {
+            entry.setField(StandardField.EPRINT, arXivId);
+            assert !arXivId.startsWith("arxiv");
+            entry.setField(StandardField.EPRINTTYPE, "arXiv");
+
+            // Quick workaround to avoid wrong year and number parsing
+            number = null; // "Germany" in org.jabref.logic.importer.fileformat.PdfContentImporterTest.extractArXivFromPage
+            year = null; // "2408" in org.jabref.logic.importer.fileformat.PdfContentImporterTest.extractArXivFromPage
         }
         if (series != null) {
             entry.setField(StandardField.SERIES, series);
@@ -593,17 +590,21 @@ public class PdfContentImporter extends PdfImporter {
         return doi;
     }
 
-    private String getFirstPageContents(PDDocument document) throws IOException {
-        PDFTextStripper stripper = new PDFTextStripper();
+    private String getArXivId(String arXivId) {
+        if (arXivId != null) {
+            return arXivId;
+        }
 
-        stripper.setStartPage(1);
-        stripper.setEndPage(1);
-        stripper.setSortByPosition(true);
-        stripper.setParagraphEnd(System.lineSeparator());
-        StringWriter writer = new StringWriter();
-        stripper.writeText(document, writer);
+        String arXiv = curString.split(" ")[0];
+        arXivId = ArXivIdentifier.parse(arXiv).map(ArXivIdentifier::asString).orElse(null);
 
-        return writer.toString();
+        if (arXivId == null || curString.length() < arXivId.length() + ARXIV_PREFIX_LENGTH) {
+            return arXivId;
+        }
+
+        proceedToNextNonEmptyLine();
+
+        return arXivId;
     }
 
     /**
@@ -691,13 +692,13 @@ public class PdfContentImporter extends PdfImporter {
     }
 
     @Override
-    public String getName() {
-        return "PDFcontent";
+    public String getId() {
+        return "pdfContent";
     }
 
     @Override
-    public StandardFileType getFileType() {
-        return StandardFileType.PDF;
+    public String getName() {
+        return Localization.lang("PDF content");
     }
 
     @Override
